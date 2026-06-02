@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Reddit Agent Evals — Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2230;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+    --pass: #3fb950;
+    --fail: #f85149;
+    --warn: #d29922;
+    --accent: #58a6ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+    padding: 24px;
+    line-height: 1.5;
+    font-size: 14px;
+  }
+  h1 { color: var(--accent); margin: 0; font-weight: 600; font-size: 22px; letter-spacing: -0.01em; }
+  h2 { color: var(--text); font-size: 14px; margin: 0 0 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+  .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+  .stat-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .stat-value { font-size: 30px; font-weight: 700; margin-top: 4px; letter-spacing: -0.02em; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+  .grid { display: grid; grid-template-columns: 360px 1fr; gap: 16px; }
+  .filters { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  select {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    padding: 6px 10px; border-radius: 6px; font-size: 12px; font-family: inherit;
+  }
+  .session-list { max-height: calc(100vh - 480px); overflow-y: auto; padding-right: 4px; }
+  .session-list::-webkit-scrollbar { width: 8px; }
+  .session-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .session-item {
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 6px; cursor: pointer; transition: background 0.12s, border-color 0.12s;
+  }
+  .session-item:hover { background: var(--panel-2); }
+  .session-item.active { background: var(--panel-2); border-color: var(--accent); }
+  .session-meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .verdict {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .verdict.pass { background: rgba(63,185,80,0.15); color: var(--pass); }
+  .verdict.fail { background: rgba(248,81,73,0.15); color: var(--fail); }
+  .verdict.override { background: rgba(210,153,34,0.15); color: var(--warn); }
+  .step {
+    border-left: 3px solid var(--border); padding: 8px 12px;
+    margin-bottom: 8px; background: rgba(0,0,0,0.22); border-radius: 0 6px 6px 0;
+  }
+  .step.success { border-left-color: var(--pass); }
+  .step.failure { border-left-color: var(--fail); }
+  .step.warning { border-left-color: var(--warn); }
+  .step-action { font-weight: 600; color: var(--accent); font-size: 13px; }
+  .step-data { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; color: var(--muted); margin-top: 4px; white-space: pre-wrap; word-break: break-all; }
+  button {
+    background: var(--accent); color: #06121f; border: none; padding: 8px 14px;
+    border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px; font-family: inherit;
+  }
+  button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); font-weight: 500; }
+  button.secondary:hover { background: var(--panel-2); }
+  button:hover { opacity: 0.92; }
+  textarea {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    padding: 10px; border-radius: 6px; width: 100%; min-height: 70px; font-family: inherit; font-size: 13px; resize: vertical;
+  }
+  .reasoning {
+    background: rgba(0,0,0,0.22); padding: 14px; border-radius: 8px;
+    font-size: 13px; line-height: 1.6; border: 1px solid var(--border);
+  }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--panel-2); color: var(--muted); font-size: 11px; margin-right: 4px; }
+  .error-state { color: var(--fail); padding: 40px; text-align: center; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>Reddit Agent Evals — Dashboard</h1>
+  <div>
+    <button id="exportBtn">Export CSV</button>
+  </div>
+</div>
+
+<div id="summary" class="summary"></div>
+
+<div class="panel" style="margin-bottom: 16px;">
+  <h2>Avg score per dimension</h2>
+  <svg id="barChart" width="100%" height="200" style="display:block"></svg>
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Sessions</h2>
+    <div class="filters">
+      <select id="filterVerdict">
+        <option value="">All verdicts</option>
+        <option value="pass">Pass</option>
+        <option value="fail">Fail</option>
+      </select>
+      <select id="filterSubreddit"><option value="">All subreddits</option></select>
+      <select id="filterOutcome">
+        <option value="">All outcomes</option>
+        <option value="success">success</option>
+        <option value="partial_failure">partial_failure</option>
+        <option value="full_failure">full_failure</option>
+      </select>
+    </div>
+    <div id="sessionList" class="session-list"></div>
+  </div>
+  <div class="panel" id="detailPanel">
+    <p style="color: var(--muted);">Select a session to view details.</p>
+  </div>
+</div>
+
+<script>
+const DIMS = ["rule_compliance","task_completion","content_quality","error_handling","efficiency"];
+const DIM_LABELS = ["Rules","Task","Quality","Errors","Efficiency"];
+const STORE_KEY = "filename1_overrides";
+
+let sessions = [];
+let evals = [];
+let overrides = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
+let selectedId = null;
+
+async function loadJsonl(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(path + " → " + r.status);
+  const t = await r.text();
+  return t.split("\n").filter(Boolean).map(l => JSON.parse(l));
+}
+
+async function load() {
+  try {
+    [sessions, evals] = await Promise.all([
+      loadJsonl("sessions.jsonl"),
+      loadJsonl("eval_results.jsonl").catch(() => []),
+    ]);
+    render();
+  } catch (e) {
+    document.body.innerHTML = `<div class="error-state">Failed to load data: ${e.message}<br><br>
+      Make sure you've run <code>node filename1.mjs</code> then <code>node filename1_eval.mjs</code>,
+      and that this dashboard is served over HTTP (e.g., <code>npx http-server .</code>).</div>`;
+  }
+}
+
+const getEval = id => evals.find(e => e.session_id === id);
+
+function effectiveVerdict(id) {
+  if (overrides[id]?.verdict) return { verdict: overrides[id].verdict, override: true };
+  const e = getEval(id);
+  return { verdict: e?.verdict || "?", override: false };
+}
+
+function renderSummary() {
+  const total = sessions.length;
+  const verdicts = sessions.map(s => effectiveVerdict(s.session_id).verdict);
+  const pass = verdicts.filter(v => v === "pass").length;
+  const fail = verdicts.filter(v => v === "fail").length;
+  const passRate = total ? (pass/total*100).toFixed(1) : "0.0";
+  const ovr = Object.keys(overrides).length;
+  document.getElementById("summary").innerHTML = `
+    <div class="stat"><div class="stat-label">Total sessions</div><div class="stat-value">${total}</div></div>
+    <div class="stat"><div class="stat-label">Pass rate</div><div class="stat-value" style="color:var(--pass)">${passRate}%</div></div>
+    <div class="stat"><div class="stat-label">Failures</div><div class="stat-value" style="color:var(--fail)">${fail}</div></div>
+    <div class="stat"><div class="stat-label">Manual overrides</div><div class="stat-value" style="color:var(--warn)">${ovr}</div></div>
+  `;
+}
+
+function renderBarChart() {
+  const W = 900, H = 200, padL = 50, padR = 20, padT = 20, padB = 40;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const avgs = DIMS.map(d => {
+    const vs = evals.map(e => e.scores?.[d]).filter(v => typeof v === "number");
+    return vs.length ? vs.reduce((a,b)=>a+b,0)/vs.length : 0;
+  });
+  const slot = plotW / DIMS.length;
+  const barW = slot * 0.6;
+  let svg = "";
+  for (let i = 0; i <= 5; i++) {
+    const y = padT + plotH - (i/5)*plotH;
+    svg += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="var(--border)" stroke-opacity="0.4"/>`;
+    svg += `<text x="${padL-8}" y="${y+4}" text-anchor="end" fill="var(--muted)" font-size="11">${i}</text>`;
+  }
+  DIMS.forEach((d, i) => {
+    const v = avgs[i];
+    const x = padL + i*slot + (slot - barW)/2;
+    const bh = (v/5)*plotH;
+    const y = padT + plotH - bh;
+    const color = v >= 4 ? "var(--pass)" : v >= 3 ? "var(--accent)" : v >= 2 ? "var(--warn)" : "var(--fail)";
+    svg += `<rect x="${x}" y="${y}" width="${barW}" height="${bh}" fill="${color}" rx="3"/>`;
+    svg += `<text x="${x + barW/2}" y="${padT + plotH + 18}" text-anchor="middle" fill="var(--muted)" font-size="12">${DIM_LABELS[i]}</text>`;
+    svg += `<text x="${x + barW/2}" y="${y - 6}" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="600">${v.toFixed(2)}</text>`;
+  });
+  const el = document.getElementById("barChart");
+  el.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  el.innerHTML = svg;
+}
+
+function renderSubFilter() {
+  const subs = [...new Set(sessions.map(s => s.subreddit))].sort();
+  const sel = document.getElementById("filterSubreddit");
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All subreddits</option>' + subs.map(s => `<option value="${s}">${s}</option>`).join("");
+  sel.value = cur;
+}
+
+function renderList() {
+  const fv = document.getElementById("filterVerdict").value;
+  const fs = document.getElementById("filterSubreddit").value;
+  const fo = document.getElementById("filterOutcome").value;
+  const list = sessions.filter(s => {
+    if (fs && s.subreddit !== fs) return false;
+    if (fo && s.final_outcome !== fo) return false;
+    if (fv && effectiveVerdict(s.session_id).verdict !== fv) return false;
+    return true;
+  });
+  const html = list.map(s => {
+    const e = getEval(s.session_id);
+    const v = effectiveVerdict(s.session_id);
+    return `
+      <div class="session-item ${selectedId === s.session_id ? "active" : ""}" data-id="${s.session_id}">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div style="font-weight:600;">${s.subreddit}</div>
+          <span class="verdict ${v.override ? "override" : v.verdict}">${v.override ? "OVR " : ""}${v.verdict}</span>
+        </div>
+        <div style="font-size:12px; color:var(--text); margin-top:3px;">${escapeHtml(s.task_description)}</div>
+        <div class="session-meta">
+          <span>${s.final_outcome}</span>
+          <span>${e ? "score " + e.overall.toFixed(2) : "—"}</span>
+        </div>
+      </div>`;
+  }).join("");
+  document.getElementById("sessionList").innerHTML = html || '<p style="color:var(--muted)">No sessions match filters.</p>';
+  document.querySelectorAll(".session-item").forEach(el => {
+    el.addEventListener("click", () => { selectedId = el.dataset.id; render(); });
+  });
+}
+
+function renderRadar(scores) {
+  const cx = 160, cy = 160, R = 110;
+  let svg = "";
+  for (let r = 1; r <= 5; r++) {
+    const pts = DIMS.map((_, i) => {
+      const a = (Math.PI*2*i)/DIMS.length - Math.PI/2;
+      return [cx + Math.cos(a)*(R*r/5), cy + Math.sin(a)*(R*r/5)].join(",");
+    }).join(" ");
+    svg += `<polygon points="${pts}" fill="none" stroke="var(--border)" stroke-opacity="${r === 5 ? 0.8 : 0.4}"/>`;
+  }
+  DIMS.forEach((_, i) => {
+    const a = (Math.PI*2*i)/DIMS.length - Math.PI/2;
+    svg += `<line x1="${cx}" y1="${cy}" x2="${cx + Math.cos(a)*R}" y2="${cy + Math.sin(a)*R}" stroke="var(--border)" stroke-opacity="0.4"/>`;
+    const lx = cx + Math.cos(a)*(R+20);
+    const ly = cy + Math.sin(a)*(R+20);
+    svg += `<text x="${lx}" y="${ly}" text-anchor="middle" dy="4" fill="var(--muted)" font-size="12">${DIM_LABELS[i]}</text>`;
+  });
+  const pts = DIMS.map((d, i) => {
+    const a = (Math.PI*2*i)/DIMS.length - Math.PI/2;
+    const v = scores[d] || 0;
+    return [cx + Math.cos(a)*(R*v/5), cy + Math.sin(a)*(R*v/5)].join(",");
+  }).join(" ");
+  svg += `<polygon points="${pts}" fill="var(--accent)" fill-opacity="0.25" stroke="var(--accent)" stroke-width="2"/>`;
+  DIMS.forEach((d, i) => {
+    const a = (Math.PI*2*i)/DIMS.length - Math.PI/2;
+    const v = scores[d] || 0;
+    svg += `<circle cx="${cx + Math.cos(a)*(R*v/5)}" cy="${cy + Math.sin(a)*(R*v/5)}" r="3.5" fill="var(--accent)"/>`;
+  });
+  return `<svg width="320" height="320" viewBox="0 0 320 320">${svg}</svg>`;
+}
+
+function renderDetail() {
+  const panel = document.getElementById("detailPanel");
+  if (!selectedId) {
+    panel.innerHTML = '<p style="color: var(--muted);">Select a session to view details.</p>';
+    return;
+  }
+  const s = sessions.find(x => x.session_id === selectedId);
+  if (!s) { panel.innerHTML = '<p style="color: var(--muted);">Session not found.</p>'; return; }
+  const e = getEval(selectedId);
+  const o = overrides[selectedId] || {};
+  const v = effectiveVerdict(selectedId);
+
+  const stepsHtml = s.steps.map(st => `
+    <div class="step ${st.status}">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div class="step-action">[${st.step_id}] ${st.action}</div>
+        <span style="color:var(--muted); font-size:11px;">${st.status}</span>
+      </div>
+      <div class="step-data"><strong>in:</strong> ${escapeHtml(JSON.stringify(st.input))}</div>
+      <div class="step-data"><strong>out:</strong> ${escapeHtml(JSON.stringify(st.output))}</div>
+    </div>
+  `).join("");
+
+  const evalBlock = e ? `
+    <div style="display:grid; grid-template-columns: 340px 1fr; gap:18px; margin-bottom: 18px; align-items:start;">
+      <div>${renderRadar(e.scores)}</div>
+      <div>
+        <div style="font-size:36px; font-weight:700; letter-spacing:-0.02em;">${e.overall.toFixed(2)}<span style="font-size:14px; color:var(--muted); font-weight:500;"> / 5</span></div>
+        <div style="margin-top:10px;"><span class="verdict ${v.override ? "override" : v.verdict}">${v.override ? "OVR " : ""}${v.verdict}</span>
+          ${v.override && e ? `<span style="margin-left:8px; color:var(--muted); font-size:11px;">judge said: ${e.verdict}</span>` : ""}
+        </div>
+        <h2 style="margin-top:18px;">Judge reasoning</h2>
+        <div class="reasoning">${escapeHtml(e.reasoning)}</div>
+      </div>
+    </div>` : '<p style="color: var(--muted);">No eval result for this session yet — run filename1_eval.mjs.</p>';
+
+  panel.innerHTML = `
+    <div style="margin-bottom: 16px;">
+      <h2 style="margin-bottom:4px;">${s.session_id}</h2>
+      <div style="font-size:16px; font-weight:600;">${s.subreddit} — ${escapeHtml(s.task_description)}</div>
+      <div style="color: var(--muted); font-size: 12px; margin-top: 6px;">
+        <span class="pill">${new Date(s.timestamp).toLocaleString()}</span>
+        <span class="pill">${s.metadata.duration_seconds}s</span>
+        <span class="pill">retries: ${s.metadata.retry_count}</span>
+        <span class="pill">outcome: ${s.final_outcome}</span>
+        ${s.profile_tag ? `<span class="pill">profile: ${s.profile_tag}</span>` : ""}
+        ${s.metadata.rule_violations.length ? `<span class="pill" style="color:var(--fail)">violations: ${s.metadata.rule_violations.join(", ")}</span>` : ""}
+      </div>
+    </div>
+    ${evalBlock}
+    <h2>Manual override</h2>
+    <div style="margin-bottom: 18px;">
+      <div style="display:flex; gap:8px; margin-bottom:10px;">
+        <button class="secondary" data-override="pass">Mark Pass</button>
+        <button class="secondary" data-override="fail">Mark Fail</button>
+        <button class="secondary" data-override="clear">Clear Override</button>
+      </div>
+      <textarea id="overrideNotes" placeholder="Notes (saved to localStorage)">${escapeHtml(o.notes || "")}</textarea>
+      <div style="margin-top:8px;"><button id="saveNotes">Save Notes</button></div>
+    </div>
+    <h2>Step trace (${s.steps.length} steps)</h2>
+    ${stepsHtml}
+  `;
+
+  panel.querySelectorAll("[data-override]").forEach(b => {
+    b.addEventListener("click", () => {
+      const a = b.dataset.override;
+      if (a === "clear") delete overrides[selectedId];
+      else overrides[selectedId] = { ...overrides[selectedId], verdict: a };
+      localStorage.setItem(STORE_KEY, JSON.stringify(overrides));
+      render();
+    });
+  });
+  document.getElementById("saveNotes").addEventListener("click", () => {
+    overrides[selectedId] = { ...overrides[selectedId], notes: document.getElementById("overrideNotes").value };
+    localStorage.setItem(STORE_KEY, JSON.stringify(overrides));
+    render();
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+
+function csvCell(v) {
+  const s = String(v ?? "");
+  return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function exportCSV() {
+  const header = ["session_id","subreddit","outcome","profile_tag","judge_verdict","override_verdict","effective_verdict","overall",...DIMS,"notes","reasoning"];
+  const rows = [header];
+  sessions.forEach(s => {
+    const e = getEval(s.session_id);
+    const o = overrides[s.session_id] || {};
+    const eff = effectiveVerdict(s.session_id);
+    rows.push([
+      s.session_id, s.subreddit, s.final_outcome, s.profile_tag || "",
+      e?.verdict || "", o.verdict || "", eff.verdict,
+      e?.overall?.toFixed(2) || "",
+      ...DIMS.map(d => e?.scores?.[d] ?? ""),
+      o.notes || "", e?.reasoning || "",
+    ]);
+  });
+  const csv = rows.map(r => r.map(csvCell).join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = "eval_export.csv";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+function render() {
+  renderSummary();
+  renderBarChart();
+  renderSubFilter();
+  renderList();
+  renderDetail();
+}
+
+document.getElementById("filterVerdict").addEventListener("change", render);
+document.getElementById("filterSubreddit").addEventListener("change", render);
+document.getElementById("filterOutcome").addEventListener("change", render);
+document.getElementById("exportBtn").addEventListener("click", exportCSV);
+
+load();
+</script>
+</body>
+</html>

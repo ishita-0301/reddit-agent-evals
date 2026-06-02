@@ -1,0 +1,7 @@
+node_modules/
+.env
+.env.*
+package-lock.json
+eval_results.jsonl
+eval_export.csv
+.DS_Store
